@@ -1,0 +1,241 @@
+#!/bin/sh
+#
+# Copyright (c) 2020 Masatake YAMATO
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+# LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+# WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+DEVICE=${DEVICE:-png16m}
+REQUIRES=( gs convert eog )
+
+help()
+{
+    echo usage:
+    printf "	boblay -h|--help|-?\n" "$prog"
+    printf "	boblay [-D|--debug] [-p|--preview] [-o <output.gif>|--output <output.gif>]\n"
+    printf "	       <input.ps> [width height]\n"
+}
+
+error()
+{
+    echo "$@" 1>&2
+    exit 1
+}
+
+run()
+{
+    local input=$1
+    local width=$2
+    local height=$3
+    local output=$4
+    local preview=$5
+    local debug=$6
+
+    if dir=$(mktemp --directory --suffix=.boblay$$); then
+	if [ -n "$debug" ]; then
+	    echo "[DEBUG] temporary directory: $dir"
+	fi
+	if gs -sDEVICE=${DEVICE} -g${width}x${height} -o ${dir}/%08d.png \
+	      -dGraphicsAlphaBits=4 -dTextAlphaBits=4 \
+	      "${input}"; then
+	    if isEmpty "${dir}"; then
+		error "gs generates no frame"
+	    fi
+	    if convert ${dir}/*.png ${output}; then
+		if [ -z "$debug" ]; then
+		    rm ${dir}/*.png
+		    rmdir ${dir}
+		fi
+		if [ -n "$preview" ]; then
+		    $preview "${output}"
+		fi
+	    else
+		error "failed in convert"
+	    fi
+	else
+	    error "failed in running gs"
+	fi
+    else
+	exit 1
+    fi
+}
+
+isInteger()
+{
+    if [ -z "$1" ]; then
+	return 1
+    fi
+
+    case "$1" in
+	[0-9]*)
+	    return 0
+	    ;;
+    esac
+
+    return 1
+}
+
+isEmpty()
+{
+    local p
+
+    for p in ${dir}/*; do
+	if [ "$p" = ${dir}/'*' ]; then
+	   return 0
+	fi
+    done
+
+    return 1
+}
+
+depcheck()
+{
+    local p
+
+    for p in "$@"; do
+	if ! type $p > /dev/null 2>&1; then
+	    error "Command \"$p\" is not available"
+	fi
+    done
+}
+
+extracParam()
+{
+    local input=$1
+    local param=$2
+    local type=$3
+    local value=$(sed -ne 's/% *BOBLAY:'"$param"':\(.\+\)/\1/p' "$input")
+
+    if [ "$type" = I ]; then
+	case "$value" in
+	    [0-9]*)
+		echo $value
+		return 0
+		;;
+	    *)
+		error "integer expected: $value"
+		;;
+	esac
+    else
+	error "INTERNAL ERROR IN extracParam"
+    fi
+}
+
+main()
+{
+    local input=
+    local width=
+    local height=
+    local output=boblay.gif
+    local preview=
+    local debug=
+
+    while [ $# -gt 0 ]; do
+	case "$1" in
+	    -h|--help)
+		help
+		exit 0
+		;;
+	    -D|--debug)
+		debug=1
+		shift
+		;;
+	    -o|--output)
+		output=$2
+		if [ -z "${output}" ]; then
+		    error "no output file name given for $1 option"
+		fi
+		shift 2
+		;;
+	    -p|--preview)
+		preview=eog
+		shift 1
+		;;
+	    -*)
+		error "unknown option: $1"
+		;;
+	    *)
+		break
+		;;
+	esac
+    done
+
+    if [ $# -gt 3 ]; then
+	error "too many aruguments: $@"
+    fi
+
+    if [ $# -lt 1 ]; then
+	error "too few aruguments: $@"
+    fi
+
+
+    input=$1
+    shift
+    if ! [ -e "$input" ]; then
+	error "no such file: $input"
+    fi
+
+    if ! [ -r "$input" ]; then
+	error "unreadable file: $input"
+    fi
+
+    if [ $# -gt 1 ]; then
+
+	width=$1
+	shift
+	if ! isInteger "$width"; then
+	    error "must be integer: $width"
+	fi
+	if ! [ $# -eq 1 ]; then
+	    error "no height given"
+	fi
+	height=$1
+	shift
+	if ! isInteger "$height"; then
+	    error "must be integer: $height"
+	fi
+    fi
+
+    if [ -z "${width}" ]; then
+	width=$(extracParam "$input" WIDTH I)
+	if [ -n "$debug" ]; then
+	    echo "param:width => $width" 1>&2
+	fi
+    fi
+    if [ -z "${height}" ]; then
+	height=$(extracParam "$input" HEIGHT I)
+	if [ -n "$debug" ]; then
+	    echo "param:height => $height" 1>&2
+	fi
+
+    fi
+
+    if [ -z "${width}" ]; then
+	width={width:-612}
+    fi
+
+    if [ -z "${height}" ]; then
+	height={height:-816}
+    fi
+    
+    run "${input}" "${width}" "${height}" "${output}" "${preview}" "${debug}"
+}
+
+depcheck $REQUIRES
+main "$@"
