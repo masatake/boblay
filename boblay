@@ -22,13 +22,15 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 DEVICE=${DEVICE:-png16m}
-REQUIRES=( gs convert eog )
+PREVIEWER=${PREVIEWER:-eog}
+REQUIRES=( gs convert )
 
 help()
 {
     echo usage:
     printf "	boblay -h|--help|-?\n" "$prog"
-    printf "	boblay [-D|--debug] [-p|--preview] [-o <output.gif>|--output <output.gif>]\n"
+    printf "	boblay [-D|--debug] [-o <output.gif>|--output <output.gif>]\n"
+    printf "	       [-p <preview-cmd>|--previewer <preview-cmd>][-N|--no-preview]\n"
     printf "	       <input.ps> [width height]\n"
 }
 
@@ -44,7 +46,7 @@ run()
     local width=$2
     local height=$3
     local output=$4
-    local preview=$5
+    local previewer=$5
     local debug=$6
 
     if dir=$(mktemp --directory --suffix=.boblay$$); then
@@ -62,8 +64,8 @@ run()
 		    rm ${dir}/*.png
 		    rmdir ${dir}
 		fi
-		if [ -n "$preview" ]; then
-		    $preview "${output}"
+		if [ -n "$previewer" ]; then
+		    $previewer "${output}"
 		fi
 	    else
 		error "failed in convert"
@@ -143,7 +145,7 @@ main()
     local width=
     local height=
     local output=boblay.gif
-    local preview=
+    local previewer=${PREVIEWER}
     local debug=
 
     while [ $# -gt 0 ]; do
@@ -163,8 +165,16 @@ main()
 		fi
 		shift 2
 		;;
-	    -p|--preview)
-		preview=eog
+	    -p|--previewer)
+		previewer=$2
+		if [ -z "${previewer}" ] ;then
+		    error "no previewer cmd given for $1 option"
+		fi
+		depcheck "$previewer"
+		shift 2
+		;;
+	    -N|--no-preview)
+		previewer=""
 		shift 1
 		;;
 	    -*)
@@ -234,7 +244,7 @@ main()
 	height={height:-816}
     fi
     
-    run "${input}" "${width}" "${height}" "${output}" "${preview}" "${debug}"
+    run "${input}" "${width}" "${height}" "${output}" "${previewer}" "${debug}"
 }
 
 depcheck $REQUIRES
